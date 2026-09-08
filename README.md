@@ -7,9 +7,9 @@
 
 ## Запуск
 
-dotnet build
+```dotnet build
 dotnet run --project src/Cli
-
+```
 ## Середовище
 
 .NET SDK 10.0, Windows, автор: Жегістовський Богдан, ФЕІ-33
