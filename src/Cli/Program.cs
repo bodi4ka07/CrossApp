@@ -1,36 +1,26 @@
-﻿using System.Runtime.InteropServices;
+﻿using Core;
 using System.Text.Json;
 
-var info = new
-{
-    Greeting = "CrossApp – практикум з крос-платформного програмування",
-    Student = "Жегістовський Богдан, група ФЕІ-33",
-    OSDescription = RuntimeInformation.OSDescription,
-    OSVersion = Environment.OSVersion.ToString(),
-    ProcessArchitecture = RuntimeInformation.ProcessArchitecture.ToString(),
-    ClrVersion = Environment.Version.ToString(),
-    Runtime = RuntimeInformation.FrameworkDescription,
-    AppBaseDirectory = AppContext.BaseDirectory,
-    CurrentDirectory = Environment.CurrentDirectory,
-    Domain = "Бібліотека (видання, примірники, читачі, видачі)"
-};
+Console.OutputEncoding = System.Text.Encoding.UTF8;
+
+EnvironmentReport report = EnvironmentInfo.Collect();
 
 if (args.Contains("--json"))
 {
-    Console.WriteLine(JsonSerializer.Serialize(info));
+    Console.WriteLine(JsonSerializer.Serialize(report));
 }
 else
 {
-    Console.WriteLine(info.Greeting);
-    Console.WriteLine($"Студент: {info.Student}");
+    Console.WriteLine("CrossApp – практикум з крос-платформного програмування");
+    Console.WriteLine("Студент: Жегістовський Богдан, група ФЕІ-33");
     Console.WriteLine(new string('-', 52));
-    Console.WriteLine($"ОС (OSDescription)  : {info.OSDescription}");
-    Console.WriteLine($"ОС (Environment)    : {info.OSVersion}");
-    Console.WriteLine($"Архітектура процесу : {info.ProcessArchitecture}");
-    Console.WriteLine($"Версія .NET (CLR)   : {info.ClrVersion}");
-    Console.WriteLine($"Runtime             : {info.Runtime}");
-    Console.WriteLine($"Каталог застосунку  : {info.AppBaseDirectory}");
-    Console.WriteLine($"Поточний каталог    : {info.CurrentDirectory}");
+    Console.WriteLine($"ОС              : {report.OsDescription}");
+    Console.WriteLine($"Runtime         : {report.FrameworkDescription}");
+    Console.WriteLine($"Архітектура     : {report.ProcessArchitecture}");
+    Console.WriteLine($"RID (визначено) : {report.DetectedRid}");
+    Console.WriteLine($"RID (від .NET)  : {report.ReportedRid}");
+    Console.WriteLine($"Каталог         : {report.BaseDirectory}");
+    Console.WriteLine($"Поточний каталог: {report.CurrentDirectory}");
     Console.WriteLine(new string('-', 52));
-    Console.WriteLine($"Предметна область: {info.Domain}");
+    Console.WriteLine($"Предметна область: {report.Domain}");
 }
