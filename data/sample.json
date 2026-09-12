@@ -1,0 +1,5 @@
+[
+  { "id": "B-101", "isbn": "978-0-06-231609-7", "title": "Sapiens: A Brief History of Humankind", "year": 2011 },
+  { "Id": "B-102", "Isbn": "978-1-5011-3730-2", "Title": "Educated", "Year": 2018 },
+  { "id": "B-103", "isbn": "978-0-7352-1129-2", "title": "Atomic Habits", "year": 2018 }
+]

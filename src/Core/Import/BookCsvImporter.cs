@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using Core.Dto;
 
 namespace Core.Import;
@@ -12,7 +13,7 @@ public static class BookCsvImporter
         var items = new List<BookDto>();
         var errors = new List<string>();
 
-        string[] lines = File.ReadAllLines(path);
+        string[] lines = File.ReadAllLines(path, Encoding.UTF8);
 
         for (int i = 0; i < lines.Length; i++)
         {
@@ -47,10 +48,11 @@ public static class BookCsvImporter
             { Length: < 4 } => new ParseFailed($"очікую 4 колонки, отримав {parts.Length}"),
             [_, "", _, _] or [_, _, "", _]
                 => new ParseFailed("ISBN або назва порожні"),
-            [_, _, _, var year] when !int.TryParse(year, NumberStyles.Integer, CultureInfo.InvariantCulture, out int y) || y < 1450 || y > DateTime.Now.Year
-                => new ParseFailed($"рік '{year}' поза допустимими межами"),
-            [var id, var isbn, var title, var year]
-                => new ParseOk(new BookDto(id, isbn, title, int.Parse(year, CultureInfo.InvariantCulture))),
+            [var id, var isbn, var title, var yearText]
+                when int.TryParse(yearText, NumberStyles.Integer, CultureInfo.InvariantCulture, out int year)
+                     && year >= 1450 && year <= DateTime.Now.Year
+                => new ParseOk(new BookDto(id, isbn, title, year)),
+            [_, _, _, var yearText] => new ParseFailed($"рік '{yearText}' поза допустимими межами"),
             _ => new ParseFailed($"занадто багато колонок: {parts.Length}")
         };
     }
