@@ -1,27 +1,25 @@
-﻿using Core;
-using System.Text.Json;
+﻿using Core.Dto;
+using Core.Import;
 
-Console.OutputEncoding = System.Text.Encoding.UTF8;
+string path = args.Length > 0 ? args[0] : Path.Combine("data", "sample.csv");
 
-EnvironmentReport report = EnvironmentInfo.Collect();
-
-if (args.Contains("--json"))
+if (!File.Exists(path))
 {
-    Console.WriteLine(JsonSerializer.Serialize(report));
+    Console.WriteLine($"Файл не знайдено: {Path.GetFullPath(path)}");
+    return 1;
 }
-else
+
+ImportResult<BookDto> result = BookCsvImporter.Load(path);
+
+Console.WriteLine($"Завантажено записів: {result.Items.Count}");
+foreach (BookDto b in result.Items.Take(5))
+    Console.WriteLine($"  {b.Id,-6} {b.Isbn,-18} {b.Title,-30} {b.Year}");
+
+if (result.Errors.Count > 0)
 {
-    Console.WriteLine("CrossApp – практикум з крос-платформного програмування");
-    Console.WriteLine("Студент: Жегістовський Богдан, група ФЕІ-33");
-    Console.WriteLine(new string('-', 52));
-    Console.WriteLine($"ОС              : {report.OsDescription}");
-    Console.WriteLine($"Runtime         : {report.FrameworkDescription}");
-    Console.WriteLine($"Архітектура     : {report.ProcessArchitecture}");
-    Console.WriteLine($"RID (визначено) : {report.DetectedRid}");
-    Console.WriteLine($"RID (від .NET)  : {report.ReportedRid}");
-    Console.WriteLine($"Каталог         : {report.BaseDirectory}");
-    Console.WriteLine($"Поточний каталог: {report.CurrentDirectory}");
-    Console.WriteLine($"Нотатка збірки  : {report.BuildNote}");
-    Console.WriteLine(new string('-', 52));
-    Console.WriteLine($"Предметна область: {report.Domain}");
+    Console.WriteLine($"Пропущено рядків: {result.Errors.Count}");
+    foreach (string e in result.Errors)
+        Console.WriteLine($"  ! {e}");
 }
+
+return 0;
