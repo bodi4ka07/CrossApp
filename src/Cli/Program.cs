@@ -21,6 +21,7 @@ else
     Console.WriteLine($"RID (від .NET)  : {report.ReportedRid}");
     Console.WriteLine($"Каталог         : {report.BaseDirectory}");
     Console.WriteLine($"Поточний каталог: {report.CurrentDirectory}");
+    Console.WriteLine($"Нотатка збірки  : {report.BuildNote}");
     Console.WriteLine(new string('-', 52));
     Console.WriteLine($"Предметна область: {report.Domain}");
 }

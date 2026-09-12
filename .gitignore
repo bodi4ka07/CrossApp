@@ -484,3 +484,5 @@ $RECYCLE.BIN/
 ## Publish output folders
 publish-sc/
 publish-fd/
+publish-singlefile/
+publish-trimmed/
