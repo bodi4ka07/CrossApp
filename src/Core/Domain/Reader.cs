@@ -8,6 +8,9 @@ namespace Core.Domain;
 /// </summary>
 public sealed class Reader
 {
+    /// <summary>Скільки примірників читач може тримати на руках одночасно.</summary>
+    public const int MaxOpenLoans = 5;
+
     private readonly List<Loan> _loans = [];
 
     public string Id { get; }
@@ -37,12 +40,17 @@ public sealed class Reader
     }
 
     /// <summary>
-    /// Видати читачеві примірник: відкриваємо видачу (яка, своєю чергою,
-    /// позначає примірник як виданий) і додаємо її до списку читача.
+    /// Видати читачеві примірник: перевіряємо ліміт відкритих видач, і лише потім
+    /// відкриваємо видачу (яка, своєю чергою, позначає примірник як виданий).
     /// </summary>
     public Loan TakeLoan(string loanId, BookCopy copy, DateOnly issuedOn)
     {
         ArgumentNullException.ThrowIfNull(copy);
+
+        if (OpenLoansCount >= MaxOpenLoans)
+            throw new InvalidOperationException(
+                $"Читач {FullName} ({Id}) уже має {OpenLoansCount} відкритих видач, " +
+                $"ліміт — {MaxOpenLoans}");
 
         Loan loan = Loan.Open(loanId, copy, Id, issuedOn);
         _loans.Add(loan);

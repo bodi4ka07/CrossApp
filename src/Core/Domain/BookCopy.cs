@@ -58,6 +58,10 @@ public sealed class BookCopy
     public static BookCopy FromDto(BookCopyDto dto) =>
         Create(dto.Id, dto.Isbn, dto.Title, dto.IsIssued);
 
+    // Примірник можна зібрати і з BookDto тижня 3: один рядок файлу — один примірник.
+    public static BookCopy FromBookDto(BookDto dto) =>
+        Create(dto.Id, dto.Isbn, dto.Title);
+
     public override string ToString() =>
         $"{Id} [{Isbn}] {Title} — {(IsIssued ? "виданий" : "на полиці")}";
 }

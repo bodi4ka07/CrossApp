@@ -5,4 +5,5 @@ public record LoanDto(
     string CopyId,
     string ReaderId,
     DateOnly IssuedOn,
-    DateOnly? ReturnedOn = null);
+    DateOnly? ReturnedOn = null,
+    string Status = "Active");

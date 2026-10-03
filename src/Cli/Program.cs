@@ -4,7 +4,8 @@ using Core.Import;
 
 if (args.Contains("--domain"))
 {
-    RunDomainDemo();
+    string domainArgPath = args.FirstOrDefault(a => a != "--domain") ?? Path.Combine("data", "sample.csv");
+    RunDomainDemo(domainArgPath);
     return 0;
 }
 
@@ -80,7 +81,7 @@ void RunMixedDemo(string mixedPath)
     }
 }
 
-void RunDomainDemo()
+void RunDomainDemo(string booksPath)
 {
     DateOnly issuedOn = new(2026, 10, 1);
 
@@ -102,6 +103,15 @@ void RunDomainDemo()
     Console.WriteLine($"Тривалість видачі: {loan.DurationInDays(issuedOn.AddDays(14))} дн.");
 
     Console.WriteLine();
+    Console.WriteLine("=== Стани видачі (enum + переходи) ===");
+    BookCopy wrongCopy = BookCopy.Create("C-009", "978-966-10-5555-9", "Випадкова книга");
+    Loan mistaken = reader.TakeLoan("L-009", wrongCopy, issuedOn);
+    Console.WriteLine($"{mistaken.Status}: {mistaken}");
+    mistaken.Cancel(wrongCopy);
+    Console.WriteLine($"{mistaken.Status}: {mistaken}");
+    Console.WriteLine(wrongCopy);
+
+    Console.WriteLine();
     Console.WriteLine("=== Мапінг сутність ↔ DTO ===");
     LoanDto loanDto = loan.ToDto();
     Loan restored = Loan.FromDto(loanDto);
@@ -121,10 +131,41 @@ void RunDomainDemo()
     TryDo("дата повернення раніше дати видачі",
         () => Loan.FromDto(new LoanDto("L-002", "C-002", "R-001", issuedOn, issuedOn.AddDays(-3))));
     TryDo("повторне закриття видачі", () => loan.Close(copy, issuedOn.AddDays(20)));
+    TryDo("закриття скасованої видачі", () => mistaken.Close(wrongCopy, issuedOn.AddDays(2)));
+    TryDo("невідомий стан у DTO",
+        () => Loan.FromDto(new LoanDto("L-003", "C-002", "R-001", issuedOn, null, "Lost")));
+    TryDo("стан Returned без дати повернення",
+        () => Loan.FromDto(new LoanDto("L-004", "C-002", "R-001", issuedOn, null, "Returned")));
+    TryDo("перевищення ліміту відкритих видач", () =>
+    {
+        Reader greedy = Reader.Register("R-003", "Олена Коваль", "olena@example.com");
+        for (int i = 1; i <= Reader.MaxOpenLoans + 1; i++)
+            greedy.TakeLoan($"L-1{i:00}", BookCopy.Create($"C-1{i:00}", "978-000-00-0000-0", $"Книга {i}"), issuedOn);
+    });
 
     Console.WriteLine();
     Console.WriteLine($"Стан після всіх відмов: {copy}; відкритих видач у читача: {reader.OpenLoansCount}");
 
+    Console.WriteLine();
+    Console.WriteLine("=== Додаткове завдання: ImportResult<BookDto> → сутності ===");
+    if (!File.Exists(booksPath))
+    {
+        Console.WriteLine($"Файл не знайдено: {Path.GetFullPath(booksPath)}");
+        return;
+    }
+
+    ImportResult<BookDto> imported = Path.GetExtension(booksPath).ToLowerInvariant() switch
+    {
+        ".json" => BookJsonImporter.Load(booksPath),
+        _ => BookCsvImporter.Load(booksPath)
+    };
+
+    ImportResult<BookCopy> domain = BookCopyAssembler.ToDomain(imported);
+    Console.WriteLine($"Створено примірників: {domain.Items.Count}, не пройшли перевірки: {domain.Errors.Count}");
+    foreach (BookCopy c in domain.Items.Take(5))
+        Console.WriteLine($"  {c}");
+    foreach (string e in domain.Errors)
+        Console.WriteLine($"  ! {e}");
 }
 
 static void TryDo(string title, Action action)
