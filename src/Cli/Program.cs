@@ -125,6 +125,7 @@ void RunDomainDemo(string booksPath)
     issuedCopy.Issue();
 
     TryDo("порожній ISBN", () => BookCopy.Create("C-003", "   ", "Патерни"));
+    TryDo("порожня назва книги", () => BookCopy.Create("C-008", "978-966-10-5555-8", " "));
     TryDo("некоректний email", () => Reader.Register("R-002", "Іван Петренко", "ivan-at-example"));
     TryDo("повторна видача примірника", () => issuedCopy.Issue());
     TryDo("повернення невиданого примірника", () => copy.Return());
@@ -142,6 +143,22 @@ void RunDomainDemo(string booksPath)
         for (int i = 1; i <= Reader.MaxOpenLoans + 1; i++)
             greedy.TakeLoan($"L-1{i:00}", BookCopy.Create($"C-1{i:00}", "978-000-00-0000-0", $"Книга {i}"), issuedOn);
     });
+    TryDo("закриття видачі чужим примірником", () =>
+    {
+        BookCopy ownCopy = BookCopy.Create("C-004", "978-966-10-5555-4", "Чиста архітектура");
+        BookCopy otherCopy = BookCopy.Create("C-005", "978-966-10-5555-5", "Предметно-орієнтоване проєктування");
+        Loan active = Loan.Open("L-005", ownCopy, "R-001", issuedOn);
+        active.Close(otherCopy, issuedOn.AddDays(3));
+    });
+    TryDo("повернення видачі іншого читача", () =>
+    {
+        Reader other = Reader.Register("R-004", "Марія Шевчук", "maria@example.com");
+        BookCopy otherBook = BookCopy.Create("C-006", "978-966-10-5555-6", "Алгоритми");
+        Loan foreign = other.TakeLoan("L-006", otherBook, issuedOn);
+        reader.ReturnLoan(foreign, otherBook, issuedOn.AddDays(5));
+    });
+    TryDo("порожній ідентифікатор читача",
+        () => Loan.Open("L-007", copy, "   ", issuedOn));
 
     Console.WriteLine();
     Console.WriteLine($"Стан після всіх відмов: {copy}; відкритих видач у читача: {reader.OpenLoansCount}");
