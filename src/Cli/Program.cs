@@ -1,6 +1,18 @@
-﻿using Core.Domain;
+﻿using Core;
+using Core.Abstractions;
+using Core.Domain;
 using Core.Dto;
 using Core.Import;
+using Core.Services;
+using Core.Storage;
+
+// Без аргументів або лише з --file: сервісний сценарій лабораторної 5.
+// Старий імпорт (лаб. 3) тепер запускається з явним шляхом: -- data/sample.csv
+if (args.Length == 0 || args.All(a => a is "--file" or "--lending"))
+{
+    RunLendingDemo(args.Contains("--file"));
+    return 0;
+}
 
 if (args.Contains("--domain"))
 {
@@ -196,4 +208,46 @@ static void TryDo(string title, Action action)
     {
         Console.WriteLine($"  {title}: {ex.GetType().Name} — {ex.Message}");
     }
+}
+
+
+void RunLendingDemo(bool useFile)
+{
+    // Composition root: єдине місце, де створюються конкретні класи сховища.
+    string dataPath = Path.Combine(AppContext.BaseDirectory, "data", "library.json");
+    ILibraryStore store = useFile
+        ? new FileLibraryStore(dataPath)
+        : new InMemoryLibraryStore(SampleData.Copies(), SampleData.Readers());
+    var service = new LendingService(store);
+    DateOnly lendToday = DateOnly.FromDateTime(DateTime.Today);
+
+    Console.WriteLine($"Сховище: {store.GetType().Name}");
+    if (useFile)
+        Console.WriteLine($"Файл: {dataPath}");
+
+    Console.WriteLine();
+    Console.WriteLine("=== Сценарій 1: успіх ===");
+    BookCopy lendBook = service.AddBook("978-0-00-000000-0", "Нова книга");
+    Reader lendReader = service.RegisterReader("Тестовий Читач", "reader@example.com");
+    Console.WriteLine($"Додано: {lendBook}");
+    Console.WriteLine($"Зареєстровано: {lendReader}");
+
+    Loan lendLoan = service.IssueCopy(lendReader.Id, lendBook.Id, lendToday);
+    Console.WriteLine($"Видано: {lendLoan}");
+    Console.WriteLine($"Знайдено за id: {service.Find(lendBook.Id)}");
+
+    service.ReturnCopy(lendReader.Id, lendBook.Id, lendToday.AddDays(7));
+    Console.WriteLine($"Повернено: {service.Find(lendBook.Id)}");
+
+    IReadOnlyList<BookCopy> allCopies = service.All();
+    Console.WriteLine($"Усього примірників у сховищі: {allCopies.Count}; останні 3:");
+    foreach (BookCopy copyItem in allCopies.TakeLast(3))
+        Console.WriteLine($"  {copyItem}");
+
+    Console.WriteLine();
+    Console.WriteLine("=== Сценарій 2: відмови ===");
+    TryDo("неіснуючий читач", () => service.IssueCopy("R-999", lendBook.Id, lendToday));
+    TryDo("неіснуючий примірник", () => service.IssueCopy(lendReader.Id, "C-999", lendToday));
+    TryDo("повернення без відкритої видачі", () => service.ReturnCopy(lendReader.Id, lendBook.Id, lendToday));
+    TryDo("дубль id примірника", () => store.AddCopy(lendBook));
 }

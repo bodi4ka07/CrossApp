@@ -72,7 +72,40 @@ public sealed class Reader
 
     public static Reader FromDto(ReaderDto dto) =>
         Register(dto.Id, dto.FullName, dto.Email);
+    /// <summary>
+    /// Відновити читача разом з його видачами (для сховища). Ті самі інваріанти, що й під час
+    /// роботи: видача належить цьому читачеві, id не повторюються, ліміт відкритих видач не перевищено.
+    /// </summary>
+    public static Reader FromDto(ReaderDto dto, IEnumerable<LoanDto> loans)
+    {
+        ArgumentNullException.ThrowIfNull(loans);
 
+        Reader reader = Register(dto.Id, dto.FullName, dto.Email);
+        foreach (LoanDto loanDto in loans)
+        {
+            Loan loan = Loan.FromDto(loanDto);
+
+            if (!string.Equals(loan.ReaderId, reader.Id, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException(
+                    $"Видача {loan.Id} належить читачеві {loan.ReaderId}, а не {reader.Id}", nameof(loans));
+            if (reader._loans.Any(l => string.Equals(l.Id, loan.Id, StringComparison.OrdinalIgnoreCase)))
+                throw new ArgumentException($"Видача {loan.Id} повторюється в списку", nameof(loans));
+
+            reader._loans.Add(loan);
+        }
+
+        if (reader.OpenLoansCount > MaxOpenLoans)
+            throw new ArgumentException(
+                $"Читач {reader.Id} має {reader.OpenLoansCount} відкритих видач, ліміт — {MaxOpenLoans}",
+                nameof(loans));
+
+        return reader;
+    }
+
+    /// <summary>Відкрита видача цього примірника або null, якщо такої немає.</summary>
+    public Loan? FindOpenLoan(string copyId) =>
+        _loans.FirstOrDefault(l => !l.IsClosed &&
+            string.Equals(l.CopyId, copyId, StringComparison.OrdinalIgnoreCase));
     public override string ToString() =>
         $"{Id} {FullName} <{Email}> — відкритих видач: {OpenLoansCount}";
 }

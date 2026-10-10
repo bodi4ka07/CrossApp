@@ -11,19 +11,30 @@
     ├── CrossApp.slnx
     ├── README.md
     ├── .gitignore
+    ├── data/                          # вхідні файли (sample.csv, sample.json, ...)
     └── src/
-        ├── Core/          # бібліотека класів (без точки входу)
+        ├── Core/                      # бібліотека класів (без точки входу)
         │   ├── Core.csproj
-        │   └── EnvironmentInfo.cs
-        └── Cli/           # консольний застосунок, залежить від Core
+        │   ├── EnvironmentInfo.cs
+        │   ├── SampleData.cs          # початкові дані для демо (16 примірників, 3 читачі)
+        │   ├── Abstractions/          # ILibraryStore — контракт сховища
+        │   ├── Domain/                # сутності з поведінкою
+        │   ├── Dto/                   # record-DTO
+        │   ├── Import/                # імпорт CSV/JSON
+        │   ├── Services/              # LendingService — бізнес-операції
+        │   └── Storage/               # InMemoryLibraryStore, FileLibraryStore
+        └── Cli/                       # консольний застосунок, залежить від Core
             ├── Cli.csproj
-            └── Program.cs
+            └── Program.cs             # composition root + сценарії
 
 ## Запуск
 
     dotnet build
-    dotnet run --project src/Cli
-    dotnet run --project src/Cli -- --json
+    dotnet run --project src/Cli                      # лаб. 5: сховище в пам'яті
+    dotnet run --project src/Cli -- --file            # лаб. 5: файлове сховище
+    dotnet run --project src/Cli -- data/sample.csv   # лаб. 3: імпорт CSV/JSON
+    dotnet run --project src/Cli -- --domain          # лаб. 4: демонстрація доменної моделі
+    dotnet run --project src/Cli -- --mixed           # лаб. 3: змішаний імпорт
 
 ## Публікація
 
@@ -59,15 +70,12 @@ net8.0 і net10.0).
 - win-x64: 76,66 МБ
 - linux-x64: 78,79 МБ
 
-Прапорець командного рядка `--json`: якщо запустити з аргументом `--json`
-(`dotnet run --project src/Cli -- --json`), програма виводить ту саму
-інформацію одним JSON-рядком (System.Text.Json) замість таблиці.
-
 ## Формат вхідного файлу (CSV)
 
 Роздільник колонок — `;` (крапка з комою), кодування — UTF-8.
 Колонки: `id;isbn;title;year`. Перший рядок-заголовок (`id;isbn;...`)
 і порожні рядки пропускаються автоматично.
+
 ## Доменна модель (лабораторна 4)
 
 Каталог `src/Core/Domain/` — сутності з поведінкою. Records з тижня 3
@@ -127,9 +135,8 @@ net8.0 і net10.0).
 Інваріант «читач не може мати більше 5 відкритих видач» охоплює дві сутності
 (`Reader` і `BookCopy`) і реалізований в агрегаті `Reader`, бо саме він володіє
 списком видач. Правила, які потребують даних поза агрегатом (наприклад, перевірка
-боргу за всіма читачами або наявності примірника у сховищі), зазвичай виносять
-у сервіс рівня застосунку — сутність не повинна ходити до сховища; це буде
-`CatalogService` на тижні 5.
+наявності примірника у сховищі), виносяться в сервіс рівня застосунку — сутність
+не повинна ходити до сховища; це `LendingService` лабораторної 5.
 
 Стан видачі описує `enum LoanStatus { Active, Returned, Cancelled }`, а не набір
 булевих прапорців. Допустимі переходи перевіряє один switch expression у
@@ -138,3 +145,121 @@ net8.0 і net10.0).
 `InvalidOperationException` із назвами обох станів у повідомленні. Той самий
 підхід у `Loan.Restore` стежить, щоб стан узгоджувався з датою повернення:
 `Returned` без дати (чи `Active` з датою) — зіпсований запис, а не коректна сутність.
+
+## Лабораторна 5: сервісний шар, два сховища, ручний DI
+
+Бізнес-операції бібліотеки винесено в `LendingService`, який залежить лише від
+інтерфейсу `ILibraryStore`, а не від конкретного сховища. Конкретні класи
+створюються в одному місці — `src/Cli/Program.cs` (composition root).
+`Microsoft.Extensions.DependencyInjection` не підключено: залежності передаються
+вручну через конструктор.
+
+### 1. Домен і контракт
+
+Головна сутність — `BookCopy` (примірник книги); `Reader` — агрегат, який володіє
+своїми видачами `Loan`. Файли:
+
+    src/Core/Abstractions/ILibraryStore.cs
+    src/Core/Storage/InMemoryLibraryStore.cs
+    src/Core/Storage/FileLibraryStore.cs
+    src/Core/Services/LendingService.cs
+    src/Core/SampleData.cs
+    src/Core/Dto/LibraryFileDto.cs
+
+Контракт `ILibraryStore` (7 методів, лише ті, що потрібні сервісу):
+
+| Метод | Навіщо |
+|-------|--------|
+| `ListCopies()` | показати всі примірники; повертає `IReadOnlyList`, щоб зовнішній код не змінював сховище в обхід Add/Update |
+| `GetCopy(id)` | знайти примірник; `BookCopy?` — запису може не бути |
+| `AddCopy(copy)` | додати примірник; дубль id — `InvalidOperationException` |
+| `UpdateCopy(copy)` | зберегти зміну стану примірника (виданий / на полиці) |
+| `GetReader(id)` | знайти читача разом з його видачами; `Reader?` |
+| `AddReader(reader)` | зареєструвати читача; дубль id — `InvalidOperationException` |
+| `UpdateReader(reader)` | зберегти зміни читача (нова або закрита видача) |
+
+Методу `Remove` у контракті немає: сервіс нічого не видаляє, а інтерфейс має
+містити лише потрібні операції. Інваріанти предметної області перевіряють
+сутності, сховище перевіряє тільки унікальність id.
+
+Сервіс `LendingService`: `AddBook`, `RegisterReader`, `IssueCopy`, `ReturnCopy`,
+`All`, `Find`. Відсутній читач чи примірник перетворюється на
+`InvalidOperationException` через `?? throw`.
+
+### 2. Дві реалізації
+
+| | `InMemoryLibraryStore` | `FileLibraryStore` |
+|---|---|---|
+| Де дані | два `Dictionary` у пам'яті | кеш у пам'яті + JSON-файл |
+| Початкові дані | через конструктор (`SampleData`) | з файлу при першому зверненні (`EnsureLoaded`) |
+| Збереження | немає — після виходу дані зникають | `Flush()` після кожної зміни |
+| Порівняння id | `OrdinalIgnoreCase` | `OrdinalIgnoreCase` |
+
+Файл: `data/library.json` у каталозі застосунку (`AppContext.BaseDirectory`, тобто
+`src/Cli/bin/.../data/library.json`). Каталог створюється автоматично.
+Формат — JSON з відступами, об'єкт `LibraryFileDto`:
+
+    {
+      "Copies":  [ { "Id": "C-001", "Isbn": "...", "Title": "...", "IsIssued": false }, ... ],
+      "Readers": [ { "Reader": { "Id": "R-001", "FullName": "...", "Email": "..." },
+                     "Loans":  [ { "Id": "L-...", "CopyId": "...", "ReaderId": "...",
+                                   "IssuedOn": "2026-10-10", "ReturnedOn": null,
+                                   "Status": "Active" } ] } ]
+    }
+
+На диск ідуть DTO, а не сутності: сутність має приватні сетери, а формат файлу не
+повинен диктувати форму домену. Мапінг — `ToDto()` / `FromDto()`; під час читання
+дані проходять ті самі інваріанти, що й створення, тож зіпсований файл не дасть
+некоректну сутність. Кирилиця в файлі може виглядати як `\u0410...` — це штатне
+екранування `System.Text.Json`.
+
+Кеш потрібен, щоб не читати й не розбирати файл на кожен виклик: файл читається
+один раз, а на диск пишеться лише при зміні.
+
+### 3. Схема залежностей
+
+    Cli (Program.cs) → LendingService → ILibraryStore → InMemoryLibraryStore | FileLibraryStore
+
+`LendingService` не знає слів «File» і «Dictionary». У `src/Core` назва
+`FileLibraryStore` зустрічається лише у файлі самої реалізації, а `Console.` — ніде.
+
+### 4. Composition root
+
+```csharp
+string dataPath = Path.Combine(AppContext.BaseDirectory, "data", "library.json");
+ILibraryStore store = useFile
+    ? new FileLibraryStore(dataPath)
+    : new InMemoryLibraryStore(SampleData.Copies(), SampleData.Readers());
+var service = new LendingService(store);
+Console.WriteLine($"Сховище: {store.GetType().Name}");
+```
+
+Це єдине місце з конкретними класами сховищ.
+
+### 5. Запуск і вивід
+
+    dotnet run --project src/Cli
+    dotnet run --project src/Cli -- --file
+
+Приклад виводу (id видачі генеруються випадково, тому в кожному запуску різні):
+
+    Сховище: InMemoryLibraryStore
+
+    === Сценарій 1: успіх ===
+    Додано: C-1a2b3c4d [978-0-00-000000-0] Нова книга — на полиці
+    Зареєстровано: R-5e6f7a8b Тестовий Читач <reader@example.com> — відкритих видач: 0
+    Видано: L-9c0d1e2f: примірник C-1a2b3c4d → читач R-5e6f7a8b, видано 2026-10-10, не повернено
+    Знайдено за id: C-1a2b3c4d [978-0-00-000000-0] Нова книга — виданий
+    Повернено: C-1a2b3c4d [978-0-00-000000-0] Нова книга — на полиці
+    Усього примірників у сховищі: 17; останні 3: ...
+
+    === Сценарій 2: відмови ===
+      неіснуючий читач: InvalidOperationException — Немає читача з id=R-999.
+      неіснуючий примірник: InvalidOperationException — Немає примірника з id=C-999.
+      повернення без відкритої видачі: InvalidOperationException — У читача ... немає відкритої видачі примірника ...
+      дубль id примірника: InvalidOperationException — Примірник з id=... уже існує.
+
+З `--file` перший рядок: `Сховище: FileLibraryStore`, далі `Файл: <шлях до library.json>`.
+Кожен запуск у файловому режимі додає нову книгу й читача, тому лічильник
+«Усього примірників» зростає (накопичення, а не обнулення). У режимі пам'яті після
+виходу дані зникають.
