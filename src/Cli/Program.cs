@@ -8,7 +8,7 @@ using Core.Storage;
 
 // Без аргументів або лише з --file: сервісний сценарій лабораторної 5.
 // Старий імпорт (лаб. 3) тепер запускається з явним шляхом: -- data/sample.csv
-if (args.Length == 0 || args.All(a => a is "--file" or "--lending"))
+if (args.Length == 0 || args.All(a => a is "--file" or "--cache" or "--lending"))
 {
     RunLendingDemo(args.Contains("--file"));
     return 0;
@@ -213,17 +213,14 @@ static void TryDo(string title, Action action)
 
 void RunLendingDemo(bool useFile)
 {
-    // Composition root: єдине місце, де створюються конкретні класи сховища.
-    string dataPath = Path.Combine(AppContext.BaseDirectory, "data", "library.json");
-    ILibraryStore store = useFile
-        ? new FileLibraryStore(dataPath)
-        : new InMemoryLibraryStore(SampleData.Copies(), SampleData.Readers());
+    // Composition root: вибір сховища делеговано StoreFactory (він теж у Cli).
+    ILibraryStore store = StoreFactory.Create(args);
     var service = new LendingService(store);
     DateOnly lendToday = DateOnly.FromDateTime(DateTime.Today);
 
     Console.WriteLine($"Сховище: {store.GetType().Name}");
     if (useFile)
-        Console.WriteLine($"Файл: {dataPath}");
+        Console.WriteLine($"Файл: {StoreFactory.DataPath}");
 
     Console.WriteLine();
     Console.WriteLine("=== Сценарій 1: успіх ===");
@@ -243,6 +240,12 @@ void RunLendingDemo(bool useFile)
     Console.WriteLine($"Усього примірників у сховищі: {allCopies.Count}; останні 3:");
     foreach (BookCopy copyItem in allCopies.TakeLast(3))
         Console.WriteLine($"  {copyItem}");
+
+    Console.WriteLine($"Пошук (Func): виданих зараз — {service.Search(c => c.IsIssued).Count}; " +
+        $"з «код» у назві — {service.Search(c => c.Title.Contains("код", StringComparison.OrdinalIgnoreCase)).Count}");
+
+    if (store is CachingLibraryStore caching)
+        Console.WriteLine($"Кеш: влучань {caching.Hits}, промахів {caching.Misses}");
 
     Console.WriteLine();
     Console.WriteLine("=== Сценарій 2: відмови ===");

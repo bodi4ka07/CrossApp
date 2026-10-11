@@ -57,5 +57,12 @@ public sealed class LendingService(ILibraryStore store)
 
     public BookCopy? Find(string id) => _store.GetCopy(id);
 
+    /// <summary>Пошук примірників за довільною умовою, наприклад <c>c => c.IsIssued</c>.</summary>
+    public IReadOnlyList<BookCopy> Search(Func<BookCopy, bool> predicate)
+    {
+        ArgumentNullException.ThrowIfNull(predicate);
+        return _store.ListCopies().Where(predicate).ToList();
+    }
+
     private static string NewId(string prefix) => $"{prefix}-{Guid.NewGuid().ToString("N")[..8]}";
 }
