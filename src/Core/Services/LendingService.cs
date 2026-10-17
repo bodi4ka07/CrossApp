@@ -1,5 +1,6 @@
 using Core.Abstractions;
 using Core.Domain;
+using Core.Events;
 
 namespace Core.Services;
 
@@ -9,12 +10,22 @@ namespace Core.Services;
 /// </summary>
 public sealed class LendingService(ILibraryStore store)
 {
+    /// <summary>На скільки днів видається примірник (для DueDate в події).</summary>
+    public const int LoanPeriodDays = 14;
+
     private readonly ILibraryStore _store = store ?? throw new ArgumentNullException(nameof(store));
+
+    /// <summary>Стан бібліотеки змінився. Core лише повідомляє, що сталося; реакцію визначає підписник.</summary>
+    public event EventHandler<LibraryChangedEventArgs>? Changed;
+
+    private void OnChanged(string copyId, LibraryChangeKind kind, string? readerId = null, DateOnly? dueDate = null) =>
+        Changed?.Invoke(this, new LibraryChangedEventArgs(copyId, kind, readerId, dueDate));
 
     public BookCopy AddBook(string isbn, string title)
     {
         BookCopy copy = BookCopy.Create(NewId("C"), isbn, title);
         _store.AddCopy(copy);
+        OnChanged(copy.Id, LibraryChangeKind.BookAdded); // після зміни, не до
         return copy;
     }
 
@@ -35,6 +46,7 @@ public sealed class LendingService(ILibraryStore store)
         Loan loan = reader.TakeLoan(NewId("L"), copy, issuedOn); // перевірки лімітів і стану — в домені
         _store.UpdateCopy(copy);
         _store.UpdateReader(reader);
+        OnChanged(copy.Id, LibraryChangeKind.CopyIssued, reader.Id, issuedOn.AddDays(LoanPeriodDays));
         return loan;
     }
 
@@ -51,18 +63,24 @@ public sealed class LendingService(ILibraryStore store)
         reader.ReturnLoan(loan, copy, returnedOn);
         _store.UpdateCopy(copy);
         _store.UpdateReader(reader);
+        OnChanged(copy.Id, LibraryChangeKind.CopyReturned, reader.Id);
     }
 
     public IReadOnlyList<BookCopy> All() => _store.ListCopies();
 
     public BookCopy? Find(string id) => _store.GetCopy(id);
 
-    /// <summary>Пошук примірників за довільною умовою, наприклад <c>c => c.IsIssued</c>.</summary>
-    public IReadOnlyList<BookCopy> Search(Func<BookCopy, bool> predicate)
+    /// <summary>
+    /// Пошук примірників за довільною умовою, наприклад <c>c => c.IsIssued</c>.
+    /// Критерій задає той, хто викликає, а результат повертається значенням — тому тут Func, а не подія.
+    /// </summary>
+    public IReadOnlyList<BookCopy> FindAll(Func<BookCopy, bool> predicate)
     {
         ArgumentNullException.ThrowIfNull(predicate);
         return _store.ListCopies().Where(predicate).ToList();
     }
+
+    public IReadOnlyList<BookCopy> Search(Func<BookCopy, bool> predicate) => FindAll(predicate);
 
     private static string NewId(string prefix) => $"{prefix}-{Guid.NewGuid().ToString("N")[..8]}";
 }

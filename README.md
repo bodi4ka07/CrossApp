@@ -274,3 +274,58 @@ Console.WriteLine($"Сховище: {store.GetType().Name}");
   Порівняно з варіантом «усе в Program.cs»: `Program.cs` став коротшим, а нові реалізації
   (кеш, БД на тижні 11) додаються в одному місці; мінус — ще один клас і те, що конкретні
   типи тепер створює не `Program.cs`, а фабрика. Тому її тримають у Cli, а не в Core.
+
+## Лабораторна 6: доменні події, делегати Action/Func, лямбди
+
+`LendingService` повідомляє про зміни через подію `Changed`, а що з нею робити (консоль,
+файл), вирішує Cli. Core не містить `Console` і не пише логів.
+
+    src/Core/Events/LibraryChangeKind.cs          # enum: BookAdded / CopyIssued / CopyReturned
+    src/Core/Events/LibraryChangedEventArgs.cs    # дані події: CopyId, Kind, ReaderId, DueDate, At
+    src/Core/Services/LendingService.cs           # event Changed + OnChanged + FindAll(Func)
+    src/Cli/Program.cs                            # підписка, відписка, лог (режим --events)
+
+**Які зміни є подіями.** Лише зміни книжкового фонду й видач: додано книгу (`BookAdded`),
+видано примірник (`CopyIssued`, з терміном повернення), повернено примірник (`CopyReturned`).
+Реєстрація читача подією не є.
+
+**Оголошення і підняття події** (`LendingService`):
+
+```csharp
+public event EventHandler<LibraryChangedEventArgs>? Changed;
+
+private void OnChanged(string copyId, LibraryChangeKind kind, string? readerId = null, DateOnly? dueDate = null) =>
+    Changed?.Invoke(this, new LibraryChangedEventArgs(copyId, kind, readerId, dueDate));
+```
+
+`OnChanged` викликається лише після успішної зміни стану (після `AddCopy`, `UpdateCopy`/`UpdateReader`).
+Якщо інваріант кинув виняток (примірник уже виданий, ліміт видач, немає читача), події немає.
+Термін повернення `DueDate = дата видачі + LendingService.LoanPeriodDays (14)`.
+
+**Підписники в Cli:** локальний метод `OnLibraryChanged` (друк у консоль і дописування в
+`logs/app.log`) і лямбда-лічильник із замиканням `service.Changed += (_, _) => changes++`.
+Обробники викликаються в порядку підписки. Відписка: `service.Changed -= OnLibraryChanged`
+(локальний метод, а не лямбда, щоб відписка спрацювала). Лог-файл:
+`Path.Combine(AppContext.BaseDirectory, "logs", "app.log")`, каталог створюється кодом.
+
+**Func замість події:** `service.FindAll(c => c.IsIssued)` — критерій задає викликач, а результат
+повертається значенням; подія для цього не підходить.
+
+**Запуск:**
+
+    dotnet run --project src/Cli -f net10.0 -- --events
+
+Приклад виводу (`logs/app.log` містить лише перші два рядки, операції після відписки там немає):
+
+    09:31:07 BookAdded    C-1cd42ff0 додано до фонду
+    09:31:07 CopyIssued   C-1cd42ff0 видано читачу R-201cc1bd до 2026-10-31
+    Подій отримано: 2
+    ...
+    Подій отримано: 2 (відмови не додали жодної)
+    ...
+    Подій отримано: 3 (+1 лише від лямбди-лічильника; у консолі й логу рядка немає)
+
+**Подія чи прямий виклик логера.** Якби сервіс сам писав у консоль чи файл, кожен новий клієнт
+(логер Api на тижні 10, Blazor-компонент на тижні 12) вимагав би змін у Core, а тест не міг би
+перевірити «що сталося» без читання консолі чи файлу. З подією Core лише повідомляє, а нових
+підписників можна додавати без змін у домені, і тест просто підписується на `Changed`.

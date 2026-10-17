@@ -2,9 +2,17 @@
 using Core.Abstractions;
 using Core.Domain;
 using Core.Dto;
+using Core.Events;
 using Core.Import;
 using Core.Services;
 using Core.Storage;
+
+// Лабораторна 6: події сервісу, підписка з Cli (логи в консоль і в logs/app.log).
+if (args.Contains("--events"))
+{
+    RunEventsDemo();
+    return 0;
+}
 
 // Без аргументів або лише з --file: сервісний сценарій лабораторної 5.
 // Старий імпорт (лаб. 3) тепер запускається з явним шляхом: -- data/sample.csv
@@ -253,4 +261,62 @@ void RunLendingDemo(bool useFile)
     TryDo("неіснуючий примірник", () => service.IssueCopy(lendReader.Id, "C-999", lendToday));
     TryDo("повернення без відкритої видачі", () => service.ReturnCopy(lendReader.Id, lendBook.Id, lendToday));
     TryDo("дубль id примірника", () => store.AddCopy(lendBook));
+}
+
+void RunEventsDemo()
+{
+    ILibraryStore store = StoreFactory.Create(args);
+    var service = new LendingService(store);
+    DateOnly today = DateOnly.FromDateTime(DateTime.Today);
+
+    // Лог-файл живе в Cli: Core про файлову систему для логів нічого не знає.
+    string logPath = Path.Combine(AppContext.BaseDirectory, "logs", "app.log");
+    Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+
+    // Підписник 1: локальний метод (щоб потім можна було відписатися).
+    void OnLibraryChanged(object? sender, LibraryChangedEventArgs e)
+    {
+        string details = e.Kind switch
+        {
+            LibraryChangeKind.CopyIssued => $"видано читачу {e.ReaderId} до {e.DueDate:yyyy-MM-dd}",
+            LibraryChangeKind.CopyReturned => $"повернено читачем {e.ReaderId}",
+            _ => "додано до фонду"
+        };
+        string line = $"{e.At:HH:mm:ss} {e.Kind,-12} {e.CopyId} {details}";
+        Console.WriteLine(line);
+        File.AppendAllText(logPath, line + Environment.NewLine);
+    }
+
+    service.Changed += OnLibraryChanged;
+
+    // Підписник 2: лямбда із замиканням над локальною змінною. Викликається після першого, в порядку підписки.
+    int changes = 0;
+    service.Changed += (_, _) => changes++;
+
+    Console.WriteLine($"Сховище: {store.GetType().Name}");
+    Console.WriteLine($"Лог: {logPath}");
+    Console.WriteLine();
+    Console.WriteLine("=== Події ===");
+    Reader reader = service.RegisterReader("Читач для подій", "events@example.com"); // події немає: це не зміна книжкового фонду
+    BookCopy book = service.AddBook("978-0-00-000000-1", "Книга для подій");
+    service.IssueCopy(reader.Id, book.Id, today);
+    Console.WriteLine($"Подій отримано: {changes}");
+
+    Console.WriteLine();
+    Console.WriteLine("=== Відмова: події немає ===");
+    TryDo("повторна видача виданого примірника", () => service.IssueCopy(reader.Id, book.Id, today));
+    TryDo("неіснуючий читач", () => service.IssueCopy("R-999", book.Id, today));
+    Console.WriteLine($"Подій отримано: {changes} (відмови не додали жодної)");
+
+    Console.WriteLine();
+    Console.WriteLine("=== Func замість події ===");
+    foreach (BookCopy issued in service.FindAll(c => c.IsIssued))
+        Console.WriteLine($"  видано: {issued}");
+
+    Console.WriteLine();
+    Console.WriteLine("=== Після відписки ===");
+    service.Changed -= OnLibraryChanged;
+    service.ReturnCopy(reader.Id, book.Id, today.AddDays(7)); // тиха операція: підписка керована
+    Console.WriteLine($"Подій отримано: {changes} (+1 лише від лямбди-лічильника; у консолі й логу рядка немає)");
+    Console.WriteLine($"Стан примірника: {service.Find(book.Id)}");
 }
