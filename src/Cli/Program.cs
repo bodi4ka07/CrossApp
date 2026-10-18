@@ -14,6 +14,13 @@ if (args.Contains("--events"))
     return 0;
 }
 
+// Лабораторна 6, додаткове: INotificationSink через конструктор + Action<string> в імпорті.
+if (args.Contains("--extra"))
+{
+    RunExtraDemo();
+    return 0;
+}
+
 // Без аргументів або лише з --file: сервісний сценарій лабораторної 5.
 // Старий імпорт (лаб. 3) тепер запускається з явним шляхом: -- data/sample.csv
 if (args.Length == 0 || args.All(a => a is "--file" or "--cache" or "--lending"))
@@ -276,13 +283,7 @@ void RunEventsDemo()
     // Підписник 1: локальний метод (щоб потім можна було відписатися).
     void OnLibraryChanged(object? sender, LibraryChangedEventArgs e)
     {
-        string details = e.Kind switch
-        {
-            LibraryChangeKind.CopyIssued => $"видано читачу {e.ReaderId} до {e.DueDate:yyyy-MM-dd}",
-            LibraryChangeKind.CopyReturned => $"повернено читачем {e.ReaderId}",
-            _ => "додано до фонду"
-        };
-        string line = $"{e.At:HH:mm:ss} {e.Kind,-12} {e.CopyId} {details}";
+        string line = ChangeFormat.Line(e);
         Console.WriteLine(line);
         File.AppendAllText(logPath, line + Environment.NewLine);
     }
@@ -319,4 +320,39 @@ void RunEventsDemo()
     service.ReturnCopy(reader.Id, book.Id, today.AddDays(7)); // тиха операція: підписка керована
     Console.WriteLine($"Подій отримано: {changes} (+1 лише від лямбди-лічильника; у консолі й логу рядка немає)");
     Console.WriteLine($"Стан примірника: {service.Find(book.Id)}");
+}
+
+void RunExtraDemo()
+{
+    // --- Додаткове 1: приймачі сповіщень передаються сервісу через конструктор (ручний DI) ---
+    string sinkLogPath = Path.Combine(AppContext.BaseDirectory, "logs", "sinks.log");
+    INotificationSink[] sinks = [new ConsoleSink(), new FileSink(sinkLogPath)];
+    ILibraryStore sinkStore = StoreFactory.Create(args);
+    var sinkService = new LendingService(sinkStore, sinks);
+    DateOnly sinkToday = DateOnly.FromDateTime(DateTime.Today);
+
+    Console.WriteLine("=== Додаткове 1: INotificationSink (ConsoleSink + FileSink) ===");
+    Console.WriteLine($"Файл приймача: {sinkLogPath}");
+    Reader sinkReader = sinkService.RegisterReader("Читач для приймачів", "sinks@example.com");
+    BookCopy sinkBook = sinkService.AddBook("978-0-00-000000-2", "Книга для приймачів");
+    sinkService.IssueCopy(sinkReader.Id, sinkBook.Id, sinkToday);
+    sinkService.ReturnCopy(sinkReader.Id, sinkBook.Id, sinkToday.AddDays(3));
+
+    // --- Додаткове 2: Action<string> як параметр методу імпорту ---
+    Console.WriteLine();
+    Console.WriteLine("=== Додаткове 2: Action<string> у BookCsvImporter.Load ===");
+    string csvFile = Path.Combine("data", "sample.csv");
+    if (!File.Exists(csvFile))
+    {
+        Console.WriteLine($"Файл не знайдено: {Path.GetFullPath(csvFile)}");
+        return;
+    }
+
+    int skippedCount = 0;
+    ImportResult<BookDto> importReport = BookCsvImporter.Load(csvFile, message =>
+    {
+        skippedCount++; // замикання над локальною змінною
+        Console.WriteLine($"  пропущено: {message}");
+    });
+    Console.WriteLine($"Прийнято {importReport.Items.Count}, звітів через Action: {skippedCount}");
 }

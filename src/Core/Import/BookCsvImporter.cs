@@ -8,7 +8,11 @@ public static class BookCsvImporter
 {
     private const char Separator = ';';
 
-    public static ImportResult<BookDto> Load(string path)
+    /// <param name="onSkipped">
+    /// Необов'язковий колбек: викликається для кожного пропущеного рядка. Core сам нічого не друкує,
+    /// а куди спрямувати звіт (консоль, файл) вирішує викликач.
+    /// </param>
+    public static ImportResult<BookDto> Load(string path, Action<string>? onSkipped = null)
     {
         var items = new List<BookDto>();
         var errors = new List<string>();
@@ -31,7 +35,9 @@ public static class BookCsvImporter
                     items.Add(ok.Value);
                     break;
                 case ParseFailed failed:
-                    errors.Add($"рядок {number}: {failed.Reason}");
+                    string message = $"рядок {number}: {failed.Reason}";
+                    errors.Add(message);
+                    onSkipped?.Invoke(message);
                     break;
             }
         }

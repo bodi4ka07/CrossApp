@@ -8,7 +8,7 @@ namespace Core.Services;
 /// Бізнес-операції бібліотеки. Залежить лише від інтерфейсу ILibraryStore,
 /// слів «File» чи «Dictionary» тут немає. Інваріанти перевіряють сутності.
 /// </summary>
-public sealed class LendingService(ILibraryStore store)
+public sealed class LendingService(ILibraryStore store, IEnumerable<INotificationSink>? sinks = null)
 {
     /// <summary>На скільки днів видається примірник (для DueDate в події).</summary>
     public const int LoanPeriodDays = 14;
@@ -18,8 +18,16 @@ public sealed class LendingService(ILibraryStore store)
     /// <summary>Стан бібліотеки змінився. Core лише повідомляє, що сталося; реакцію визначає підписник.</summary>
     public event EventHandler<LibraryChangedEventArgs>? Changed;
 
-    private void OnChanged(string copyId, LibraryChangeKind kind, string? readerId = null, DateOnly? dueDate = null) =>
-        Changed?.Invoke(this, new LibraryChangedEventArgs(copyId, kind, readerId, dueDate));
+    // Додатково: приймачі, передані через конструктор (альтернатива події, див. README).
+    private readonly List<INotificationSink> _sinks = sinks?.ToList() ?? [];
+
+    private void OnChanged(string copyId, LibraryChangeKind kind, string? readerId = null, DateOnly? dueDate = null)
+    {
+        var args = new LibraryChangedEventArgs(copyId, kind, readerId, dueDate);
+        Changed?.Invoke(this, args);
+        foreach (INotificationSink sink in _sinks)
+            sink.Notify(args);
+    }
 
     public BookCopy AddBook(string isbn, string title)
     {
