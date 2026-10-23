@@ -13,6 +13,7 @@ public interface ILibraryStore
     void AddCopy(BookCopy copy);
     void UpdateCopy(BookCopy copy);
 
+    IReadOnlyList<Reader> ListReaders();
     Reader? GetReader(string id);
     void AddReader(Reader reader);
     void UpdateReader(Reader reader);

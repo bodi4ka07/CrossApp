@@ -34,6 +34,8 @@ public sealed class InMemoryLibraryStore(
         _copies[copy.Id] = copy;
     }
 
+    public IReadOnlyList<Reader> ListReaders() => _readers.Values.ToList();
+
     public Reader? GetReader(string id) => _readers.GetValueOrDefault(id);
 
     public void AddReader(Reader reader)

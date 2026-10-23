@@ -76,6 +76,8 @@ public sealed class LendingService(ILibraryStore store, IEnumerable<INotificatio
 
     public IReadOnlyList<BookCopy> All() => _store.ListCopies();
 
+    public IReadOnlyList<Reader> AllReaders() => _store.ListReaders();
+
     public BookCopy? Find(string id) => _store.GetCopy(id);
 
     /// <summary>

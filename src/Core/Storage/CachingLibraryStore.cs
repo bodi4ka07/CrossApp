@@ -46,6 +46,8 @@ public sealed class CachingLibraryStore(ILibraryStore inner) : ILibraryStore
         _copies[copy.Id] = copy;
     }
 
+    public IReadOnlyList<Reader> ListReaders() => _inner.ListReaders();
+
     public Reader? GetReader(string id)
     {
         if (_readers.TryGetValue(id, out Reader? cached))

@@ -89,6 +89,12 @@ public sealed class FileLibraryStore(string path) : ILibraryStore
         Flush();
     }
 
+    public IReadOnlyList<Reader> ListReaders()
+    {
+        EnsureLoaded();
+        return _readers.Values.ToList();
+    }
+
     public Reader? GetReader(string id)
     {
         EnsureLoaded();

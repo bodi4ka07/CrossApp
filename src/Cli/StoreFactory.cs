@@ -13,9 +13,16 @@ internal static class StoreFactory
 
     public static ILibraryStore Create(string[] args)
     {
-        ILibraryStore store = args.Contains("--file")
-            ? new FileLibraryStore(DataPath)
-            : new InMemoryLibraryStore(SampleData.Copies(), SampleData.Readers());
+        ILibraryStore store;
+        if (args.Contains("--file"))
+        {
+            store = new FileLibraryStore(DataPath);
+        }
+        else
+        {
+            var (copies, readers) = SampleData.Library();
+            store = new InMemoryLibraryStore(copies, readers);
+        }
 
         return args.Contains("--cache") ? new CachingLibraryStore(store) : store;
     }

@@ -16,7 +16,7 @@
         ├── Core/                      # бібліотека класів (без точки входу)
         │   ├── Core.csproj
         │   ├── EnvironmentInfo.cs
-        │   ├── SampleData.cs          # початкові дані для демо (16 примірників, 3 читачі)
+        │   ├── SampleData.cs          # початкові дані для демо і звітів (20 примірників, 6 читачів)
         │   ├── Abstractions/          # ILibraryStore — контракт сховища
         │   ├── Domain/                # сутності з поведінкою
         │   ├── Dto/                   # record-DTO
@@ -166,7 +166,7 @@ net8.0 і net10.0).
     src/Core/SampleData.cs
     src/Core/Dto/LibraryFileDto.cs
 
-Контракт `ILibraryStore` (7 методів, лише ті, що потрібні сервісу):
+Контракт `ILibraryStore` (8 методів (з лаби 7 додано ListReaders), лише ті, що потрібні сервісу):
 
 | Метод | Навіщо |
 |-------|--------|
@@ -177,6 +177,7 @@ net8.0 і net10.0).
 | `GetReader(id)` | знайти читача разом з його видачами; `Reader?` |
 | `AddReader(reader)` | зареєструвати читача; дубль id — `InvalidOperationException` |
 | `UpdateReader(reader)` | зберегти зміни читача (нова або закрита видача) |
+| `ListReaders()` | (лаба 7) перелік читачів для звітів; повертає `IReadOnlyList` |
 
 Методу `Remove` у контракті немає: сервіс нічого не видаляє, а інтерфейс має
 містити лише потрібні операції. Інваріанти предметної області перевіряють
@@ -229,7 +230,7 @@ net8.0 і net10.0).
 string dataPath = Path.Combine(AppContext.BaseDirectory, "data", "library.json");
 ILibraryStore store = useFile
     ? new FileLibraryStore(dataPath)
-    : new InMemoryLibraryStore(SampleData.Copies(), SampleData.Readers());
+    : new InMemoryLibraryStore(copies, readers); // (copies, readers) = SampleData.Library()
 var service = new LendingService(store);
 Console.WriteLine($"Сховище: {store.GetType().Name}");
 ```
@@ -251,7 +252,7 @@ Console.WriteLine($"Сховище: {store.GetType().Name}");
     Видано: L-9c0d1e2f: примірник C-1a2b3c4d → читач R-5e6f7a8b, видано 2026-10-10, не повернено
     Знайдено за id: C-1a2b3c4d [978-0-00-000000-0] Нова книга — виданий
     Повернено: C-1a2b3c4d [978-0-00-000000-0] Нова книга — на полиці
-    Усього примірників у сховищі: 17; останні 3: ...
+    Усього примірників у сховищі: 21; останні 3: ...
 
     === Сценарій 2: відмови ===
       неіснуючий читач: InvalidOperationException — Немає читача з id=R-999.
@@ -363,3 +364,79 @@ private void OnChanged(string copyId, LibraryChangeKind kind, string? readerId =
 аварійно завершити весь процес; (в) тест не може `await`-ити такий обробник. Тому всередині
 `async void`-обробника ризиковану роботу обгортають у `try/catch`, а де потрібен результат чи очікування,
 використовують метод, що повертає `Task`, а не подію (детально — на тижні 8).
+
+## Лабораторна 7: звіти через LINQ
+
+Усі запити лежать у `src/Core/Reports/ReportService.cs` (статичний клас, чисті функції): приймають
+`IEnumerable<...>` (не сховище) і повертають `IReadOnlyList<DTO>`, а не доменні сутності. У `Program.cs`
+немає жодного `Where`/`GroupBy`, лише виклики `ReportService` і вивід.
+
+    src/Core/Reports/OverdueLine.cs      # DTO: прострочена видача
+    src/Core/Reports/ReaderLine.cs       # DTO: читач і кількість видач
+    src/Core/Reports/GroupSummary.cs     # DTO: група (ключ, кількість, скільки видано)
+    src/Core/Reports/ReportService.cs    # усі запити
+    src/Core/SampleData.cs               # розширено: 20 примірників, 6 читачів із видачами
+
+### Запити
+
+| Метод | Питання | Оператори |
+|-------|---------|-----------|
+| `OverdueLoans(readers, today)` | хто прострочив повернення (відкрита видача старша за 14 днів) | `SelectMany`, `Where`, `OrderByDescending` + `ThenBy`, `Select` у DTO |
+| `TopReaders(readers, n)` | топ-N читачів за кількістю видач | `OrderByDescending` + `ThenBy(Id)`, `Take`, `Select` |
+| `ByPublisher(copies)` | як примірники розподілені за видавцем (префікс ISBN) | `GroupBy`, `g.Key`, `g.Count()`, `OrderByDescending` |
+| `Totals(copies)` | усього, виданих, середня й максимальна кількість примірників на книгу | `GroupBy`, `Count`, `Average`, `Max` |
+
+Топ-N має другий ключ сортування (`ThenBy` за унікальним `Id`), тому порядок однаковий між запусками
+(у даних є читачі з однаковою кількістю видач). `Totals` перевіряє порожнє джерело, бо `Average` і
+`Max` на порожній послідовності кидають `InvalidOperationException`. Терміну повернення в `Loan` немає,
+тому «прострочена» означає: видача відкрита і `дата видачі + 14 днів < сьогодні`.
+
+Фрагмент `GroupBy` із проєкцією:
+
+```csharp
+copies
+    .GroupBy(c => Publisher(c.Isbn), StringComparer.OrdinalIgnoreCase)
+    .Select(g => new GroupSummary(g.Key, g.Count(), g.Count(c => c.IsIssued)))
+    .OrderByDescending(s => s.Count)
+    .ThenBy(s => s.Key, StringComparer.Ordinal)
+    .ToList();
+```
+
+`g.Key` — значення, за яким згруповано (видавець), `g.Count()` — скільки примірників потрапило в групу.
+
+### Запуск
+
+    dotnet run --project src/Cli -f net10.0 -- report-top
+    dotnet run --project src/Cli -f net10.0 -- report-overdue
+    dotnet run --project src/Cli -f net10.0 -- report-groups
+    dotnet run --project src/Cli -f net10.0 -- report-sum
+    dotnet run --project src/Cli -f net10.0 -- report-lazy
+
+Прапорці `--file` і `--cache` назвою звіту не вважаються. Приклад виводу (дати відлічуються від сьогодні):
+
+    report-top:
+      Марія Шевчук             R-004  видач:   4  відкритих:  1
+      Жегістовський Богдан     R-001  видач:   3  відкритих:  2
+      Іван Петренко            R-002  видач:   2  відкритих:  1
+      Софія Бондар             R-006  видач:   2  відкритих:  1
+      Олена Коваль             R-003  видач:   1  відкритих:  1
+    report-groups:
+      978-966-10-5555    примірників:  13  виданих:   6
+      978-966-10-6666    примірників:   4  виданих:   0
+      978-617-12-7777    примірників:   3  виданих:   0
+    report-sum:
+      примірників 20, виданих 6, середня кількість примірників на книгу 1,25, макс 3
+
+### Відкладене виконання
+
+`report-lazy` будує запит `ReportService.IssuedQuery(source)` над локальним списком `source`.
+Запит тільки описується: `Where` нічого не обробляє в момент оголошення. Виконання відбувається під час
+`Count()` (і `ToList()`), причому щоразу заново, тому перший `Count()` дав 6, а після додавання в
+`source` виданого примірника другий `Count()` дав 7. `ToList()` зафіксував результат, тож після
+`source.Clear()` у знімку лишилося 7. Джерелом взято локальний список, бо `service.All()` щоразу
+повертає новий знімок і зміни в ньому не були б видні. Метод `IssuedQuery` навмисно повертає
+`IEnumerable` (лише для демо), усі справжні звіти матеріалізуються `ToList()`.
+
+    Виданих до змін: 6
+    Виданих після змін: 7
+    У знімку лишилось: 7

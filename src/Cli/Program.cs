@@ -4,6 +4,7 @@ using Core.Domain;
 using Core.Dto;
 using Core.Events;
 using Core.Import;
+using Core.Reports;
 using Core.Services;
 using Core.Storage;
 
@@ -20,6 +21,11 @@ if (args.Contains("--extra"))
     RunExtraDemo();
     return 0;
 }
+
+// Лабораторна 7: підкоманди звітів. Прапорці (--file, --cache) назвою звіту не вважаються.
+string? reportCommand = args.FirstOrDefault(a => !a.StartsWith("--"));
+if (reportCommand is not null && reportCommand.StartsWith("report-"))
+    return RunReport(reportCommand);
 
 // Без аргументів або лише з --file: сервісний сценарій лабораторної 5.
 // Старий імпорт (лаб. 3) тепер запускається з явним шляхом: -- data/sample.csv
@@ -355,4 +361,72 @@ void RunExtraDemo()
         Console.WriteLine($"  пропущено: {message}");
     });
     Console.WriteLine($"Прийнято {importReport.Items.Count}, звітів через Action: {skippedCount}");
+}
+
+int RunReport(string command)
+{
+    ILibraryStore reportStore = StoreFactory.Create(args);
+    var reportService = new LendingService(reportStore);
+
+    switch (command)
+    {
+        case "report-top":
+            PrintReaders(ReportService.TopReaders(reportService.AllReaders(), 5));
+            break;
+        case "report-overdue":
+            PrintOverdue(ReportService.OverdueLoans(reportService.AllReaders(), DateOnly.FromDateTime(DateTime.Today)));
+            break;
+        case "report-groups":
+            IReadOnlyList<GroupSummary> groups = ReportService.ByPublisher(reportService.All());
+            if (groups.Count == 0)
+                Console.WriteLine("  (порожньо)");
+            foreach (GroupSummary g in groups)
+                Console.WriteLine($"  {g.Key,-18} примірників: {g.Count,3}  виданих: {g.IssuedCount,3}");
+            break;
+        case "report-sum":
+            var totals = ReportService.Totals(reportService.All());
+            Console.WriteLine($"  примірників {totals.Copies}, виданих {totals.Issued}, " +
+                $"середня кількість примірників на книгу {totals.AvgCopiesPerTitle:F2}, макс {totals.MaxCopiesPerTitle}");
+            break;
+        case "report-lazy":
+            RunLazyDemo(reportService);
+            break;
+        default:
+            Console.WriteLine("report-top | report-overdue | report-groups | report-sum | report-lazy");
+            return 1;
+    }
+
+    return 0;
+}
+
+static void PrintReaders(IReadOnlyList<ReaderLine> lines)
+{
+    if (lines.Count == 0)
+        Console.WriteLine("  (порожньо)");
+    foreach (ReaderLine l in lines)
+        Console.WriteLine($"  {l.FullName,-24} {l.ReaderId,-6} видач: {l.LoansCount,3}  відкритих: {l.OpenLoans,2}");
+}
+
+static void PrintOverdue(IReadOnlyList<OverdueLine> lines)
+{
+    if (lines.Count == 0)
+        Console.WriteLine("  (прострочених немає)");
+    foreach (OverdueLine l in lines)
+        Console.WriteLine($"  {l.ReaderName,-24} {l.CopyId,-8} видано {l.IssuedOn:yyyy-MM-dd}  " +
+            $"до {l.DueDate:yyyy-MM-dd}  прострочено {l.DaysOverdue,3} дн.");
+}
+
+// Крок 3 методички: відкладене виконання. Джерело — локальний список, бо All() щоразу дає новий знімок.
+void RunLazyDemo(LendingService lazyService)
+{
+    List<BookCopy> source = lazyService.All().ToList();
+    IEnumerable<BookCopy> query = ReportService.IssuedQuery(source); // запит побудовано, не виконано
+
+    Console.WriteLine($"Виданих до змін: {query.Count()}");
+    source.Add(BookCopy.Create("C-TMP1", "978-000-00-0000-1", "Тимчасовий примірник", isIssued: true));
+    Console.WriteLine($"Виданих після змін: {query.Count()}"); // число інше: запит виконується заново
+
+    List<BookCopy> snapshot = query.ToList(); // результат зафіксовано
+    source.Clear();
+    Console.WriteLine($"У знімку лишилось: {snapshot.Count}"); // не змінюється
 }
